@@ -1,10 +1,11 @@
+import useChat from "@/hooks/useChat";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons"; // Icons ke liye
 import axios from "axios";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import { createAudioPlayer } from "expo-audio";
-import { router, useFocusEffect, usePathname } from "expo-router";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useFocusEffect } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -17,44 +18,63 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
+import MyListItem from "../../components/MyListItem";
 import NetworkBanner from "../../components/NetworkBanner";
 import { API_URL } from "../../config/config";
 import { useAuth } from "../../Context/AuthContext";
 import { useSocket } from "../../Context/SocketContext";
-
 dayjs.extend(relativeTime);
 
-export default function UsersScreen({ navigation }) {
+export default function UsersScreen() {
+  const { isAtBottomRef, markAsRead, unreadCount } = useChat();
   const [users, setUsers] = useState([]);
   const [unreadCounts, setUnreadCounts] = useState({});
   const { socket, currentChatUserId } = useSocket();
   const { user, logout } = useAuth();
-  const pathname = usePathname();
 
-  console.log("user", user);
+  console.log("user in user.js", user);
   const [loading, setLoading] = useState(true);
   // Agar aapne stringify kiya tha, to parse karna pare ga
 
+  const playerRef = useRef(null);
+
+  useEffect(() => {
+    if (Platform.OS !== "web") {
+      playerRef.current = createAudioPlayer(
+        require("../../assets/sounds/sound.mp3"),
+      );
+    }
+
+    return () => {
+      if (playerRef.current) {
+        playerRef.current.stop();
+        playerRef.current = null;
+      }
+    };
+  }, []);
+
   const playMessageSound = async () => {
+    console.log("1 Start");
+    const soundFilePath =
+      Platform.OS === "web"
+        ? "sounds\\sound.mp3"
+        : require("../../assets/sounds/sound.mp3");
     try {
+      console.log("2 Before play");
       if (Platform.OS === "web") {
-        console.log("playing sound");
-        const audio = new window.Audio("sounds\\sound.mp3");
+        const audio = new window.Audio(soundFilePath);
         await audio.play();
         return;
-      } else {
-        const player = createAudioPlayer(
-          require("../../assets/sounds/sound.mp3"),
-        );
-
-        player.play();
       }
+      console.log("3 After play");
+      await playerRef.current?.play();
     } catch (err) {
       console.log("Sound Error:", err);
     }
+    console.log("5 End");
   };
 
-  const fetchUnread = async () => {
+  const fetchUnread = useCallback(async () => {
     try {
       console.log(
         "Fetching users from Unread:",
@@ -67,7 +87,7 @@ export default function UsersScreen({ navigation }) {
       console.error("Axios Error:", error);
       return [];
     }
-  };
+  }, [user._id]);
 
   const loadUnread = useCallback(async () => {
     try {
@@ -81,10 +101,9 @@ export default function UsersScreen({ navigation }) {
     } catch (error) {
       console.log("Unread count error:", error);
     }
-  }, []);
+  }, [fetchUnread]);
 
   const userRef = useRef(user);
-  const loadUnreadRef = useRef(loadUnread);
 
   const [, forceUpdate] = useState(0);
 
@@ -101,16 +120,11 @@ export default function UsersScreen({ navigation }) {
   }, [user]);
 
   useEffect(() => {
-    loadUnreadRef.current = loadUnread;
-  }, [loadUnread]);
-
-  useEffect(() => {
     if (!socket) return;
 
     const handleReceiveMessage = async (message) => {
       console.log("Users Screen - New Message:", message);
 
-      let user_;
       // Ignore messages not meant for this user
       if (message.receiverId !== user._id) return;
 
@@ -140,27 +154,38 @@ export default function UsersScreen({ navigation }) {
         await playMessageSound();
         Toast.show({
           type: "success",
-          text1: `${user.name} || New Msg` || "New Message",
+          text1: `${user?.name} || New Msg` || "New Message",
           text2: message.text,
           position: "top",
           visibilityTime: 3000,
         });
       }
 
-      //real time notification for sender for message recieve
-      socket.emit("acknowledgeDelivery", {
-        messageId: message._id,
-        senderId: message.senderId,
-      });
+      if (isCurrentChatOpen && isAtBottomRef.current && unreadCount > 0) {
+        markAsRead();
+      } else {
+        //real time notification for sender for message recieve
+        socket.emit("acknowledgeDelivery", {
+          messageId: message._id,
+          senderId: message.senderId,
+        });
+      }
     };
 
-    console.log("Client Socket ID:", socket.id);
     socket.on("receiveMessage", handleReceiveMessage);
 
     return () => {
       socket.off("receiveMessage", handleReceiveMessage);
     };
-  }, [socket]);
+  }, [
+    socket,
+    currentChatUserId,
+    unreadCount,
+    markAsRead,
+    isAtBottomRef,
+    user._id,
+    user.name,
+  ]);
 
   useEffect(() => {
     if (!socket) return;
@@ -179,19 +204,10 @@ export default function UsersScreen({ navigation }) {
         loadUnread();
         console.log("useFocusEffect");
       }
-    }, [loadUnread]),
+    }, [loadUnread, user?._id]),
   );
 
-  useEffect(() => {
-    fetchUsers();
-  }, []);
-
-  const handleLogout = async () => {
-    await logout();
-    console.log("logout");
-  };
-
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     try {
       console.log(
         "Fetching users:",
@@ -204,49 +220,31 @@ export default function UsersScreen({ navigation }) {
     } finally {
       setLoading(false);
     }
+  }, [user._id]);
+
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
+
+  const handleLogout = async () => {
+    await logout();
+    console.log("logout");
   };
 
-  const MyListItem = React.memo(({ item }) => (
-    <TouchableOpacity
-      onPress={() =>
-        router.push({
-          pathname: "/Chat",
-          params: { userId: user._id, receiverId: item._id },
-        })
-      }
-      style={styles.userCard}
-    >
-      <View style={styles.avatar}>
-        <Text style={styles.avatarText}>
-          {item.name.charAt(0).toUpperCase()}
-        </Text>
-      </View>
-
-      <View style={styles.userInfo}>
-        <View style={styles.userHeader}>
-          <Text style={styles.userName}>{item.name}</Text>
-
-          {unreadCounts[item._id] > 0 && (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>{unreadCounts[item._id]}</Text>
-            </View>
-          )}
-
-          <Text style={styles.timeText}>
-            {item.lastMessageTime ? dayjs(item.lastMessageTime).fromNow() : ""}
-          </Text>
-        </View>
-        <Text style={styles.userEmail} numberOfLines={1}>
-          {item.lastMessage || "No messages yet"}
-        </Text>
-      </View>
-    </TouchableOpacity>
-  ));
+  const renderItem = useCallback(
+    ({ item }) => (
+      <MyListItem
+        item={item}
+        unreadCount={unreadCounts[item._id] || 0}
+        currentUserId={user._id}
+      />
+    ),
+    [unreadCounts, user._id],
+  );
 
   return (
     <SafeAreaView style={styles.container}>
-      <NetworkBanner />
-
+      <NetworkBanner position="bottom" />
       {/* --- CUSTOM WHATSAPP HEADER --- */}
       <StatusBar backgroundColor="#075E54" barStyle="light-content" />
       <View style={styles.header}>
@@ -277,7 +275,7 @@ export default function UsersScreen({ navigation }) {
         <FlatList
           data={users}
           keyExtractor={(item) => item._id}
-          renderItem={({ item }) => <MyListItem item={item} />}
+          renderItem={renderItem}
         />
       )}
     </SafeAreaView>
@@ -301,45 +299,4 @@ const styles = StyleSheet.create({
   headerIcons: { flexDirection: "row", alignItems: "center" },
   iconButton: { marginLeft: 20 },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  userCard: { flexDirection: "row", padding: 15, alignItems: "center" },
-  avatar: {
-    width: 55,
-    height: 55,
-    borderRadius: 27.5,
-    backgroundColor: "#128C7E",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  avatarText: { color: "#fff", fontSize: 20, fontWeight: "bold" },
-  userInfo: {
-    flex: 1,
-    marginLeft: 15,
-    borderBottomWidth: 0.5,
-    borderBottomColor: "#eee",
-    paddingBottom: 15,
-  },
-  userHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 5,
-  },
-  userName: { fontSize: 17, fontWeight: "bold" },
-  timeText: { fontSize: 12, color: "#25D366" }, // WhatsApp Green color
-  userEmail: { fontSize: 14, color: "#666" },
-
-  badge: {
-    backgroundColor: "green",
-    minWidth: 22,
-    height: 22,
-    borderRadius: 11,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 6,
-  },
-
-  badgeText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "bold",
-  },
 });

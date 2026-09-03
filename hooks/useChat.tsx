@@ -3,7 +3,7 @@ import { chatService } from "@/services/chatService";
 import { Message } from "@/types/message";
 import { useIsFocused, useNavigation } from "@react-navigation/native";
 import { useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, Keyboard, TextInput } from "react-native";
 import { useChatSocket } from "./useChatSocket";
 
@@ -14,11 +14,11 @@ export default function useChat() {
 
   // Params
 
-  const { userId, receiverId } = useLocalSearchParams<{
+  const { userId, receiverId, receiverName } = useLocalSearchParams<{
     userId: string;
     receiverId: string;
+    receiverName: string;
   }>();
-
   // States
 
   const [message, setMessage] = useState("");
@@ -27,34 +27,98 @@ export default function useChat() {
   const { socket, setCurrentChatUserId } = useSocket();
   const [showNewMsgBtn, setShowNewMsgBtn] = useState(false);
   const [openEmojiPicker, setOpenEmojiPicker] = useState(false);
-  const [shouldFocusInput, setShouldFocusInput] = useState(false);
 
   const [isMarkingRead, setIsMarkingRead] = useState(false);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-
+  const [isOnline, setIsOnline] = useState(false);
+  const [lastSeen, setLastSeen] = useState<number | null>(null);
+  const [replyMessage, setReplyMessage] = useState<Message | null>(null);
   //Refs for pagination and scroll position
   const flatListRef = useRef<FlatList<Message>>(null);
   const isFirstRender = useRef(true);
   const isAtBottomRef = useRef(true);
-  const previousHeightRef = useRef(0);
-  const previousOffsetRef = useRef(0);
+
   const loadingMoreRef = useRef(false);
-  const oldContentHeightRef = useRef(0);
-  const restoredScrollRef = useRef(false);
+
   const inputRef = useRef<TextInput>(null);
   const paginationCooldownRef = useRef(false);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isTypingRef = useRef(false);
+  useEffect(() => {
+    console.log("replyMessage:", replyMessage);
+  }, [replyMessage]);
+  const handleTyping = (text: string) => {
+    setMessage(text);
+
+    if (!socket) return;
+    // If the user removes all text, emit stopTyping and reset the typing state
+    if (text.trim() === "") {
+      if (isTypingRef.current) {
+        socket.emit("stopTyping", {
+          senderId: userId,
+          receiverId,
+        });
+
+        isTypingRef.current = false;
+      }
+
+      setMessage(text);
+      return;
+    }
+
+    // Emit only once when typing starts
+    if (!isTypingRef.current) {
+      socket.emit("typing", {
+        senderId: userId,
+        receiverId,
+      });
+
+      isTypingRef.current = true;
+    }
+
+    // Restart stop timer
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    typingTimeoutRef.current = setTimeout(() => {
+      socket.emit("stopTyping", {
+        senderId: userId,
+        receiverId: receiverId,
+      });
+      isTypingRef.current = false;
+      typingTimeoutRef.current = null;
+    }, 1000);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+
+      // Optional: ensure receiver doesn't keep seeing "Typing..."
+      if (socket && isTypingRef.current) {
+        socket.emit("stopTyping", {
+          senderId: userId,
+          receiverId,
+        });
+      }
+    };
+  }, [socket, userId, receiverId]);
+
   // Fetch messages function
-  const fetchMessages = async () => {
+  const fetchMessages = useCallback(async () => {
     try {
       const data = await chatService.fetchMessages(userId, receiverId);
       setMessages(data);
     } catch (err) {
       console.log(err);
     }
-  };
+  }, [userId, receiverId]);
 
   useEffect(() => {
     return () => {
@@ -70,7 +134,7 @@ export default function useChat() {
     });
 
     return unsubscribe;
-  }, [navigation]);
+  }, [navigation, setCurrentChatUserId]);
 
   useEffect(() => {
     if (isFocused) {
@@ -78,7 +142,33 @@ export default function useChat() {
     } else {
       setCurrentChatUserId(null);
     }
-  }, [isFocused, receiverId]);
+  }, [isFocused, receiverId, setCurrentChatUserId]);
+
+  //when there are many masages and read them all on screen load
+  const markAsRead = useCallback(async () => {
+    if (isMarkingRead) return;
+    if (!socket) return;
+    setIsMarkingRead(true);
+
+    try {
+      await chatService.MarkAsRead(receiverId, userId);
+
+      if (isAtBottomRef.current) {
+        // 🔥 ADD THIS
+        socket.emit("markAsRead", {
+          senderId: receiverId,
+          receiverId: userId,
+        });
+      } else {
+        // ❗ visible نہیں → unread increment
+        setShowNewMsgBtn(true);
+      }
+    } catch (error) {
+      console.error("Mark as read error:", error);
+    } finally {
+      setTimeout(() => setIsMarkingRead(false), 500);
+    }
+  }, [isMarkingRead, socket, receiverId, userId]);
 
   const unreadCount = useMemo(() => {
     return messages.filter(
@@ -89,49 +179,60 @@ export default function useChat() {
     ).length;
   }, [messages, receiverId, userId]);
 
+  // marks all existing unread messages as read on screen load.
   useEffect(() => {
     if (!socket) return;
     if (!userId || !receiverId || !messages || messages.length === 0) {
       return;
     }
-
+    console.log("unreadCount:", unreadCount);
     if (unreadCount > 0) {
       markAsRead();
     }
-  }, [receiverId, userId, unreadCount]);
+  }, [receiverId, userId, unreadCount, socket, messages, markAsRead]);
+
+  useEffect(() => {
+    console.log("messages changed");
+  }, [messages]);
 
   // Handle New Socket Message
-  const handleNewMessage = (msg: Message) => {
-    setMessages((prev) => {
-      const exists = prev.some((m) => m._id === msg._id);
-      if (exists) return prev;
-      return [msg, ...prev];
-    });
+  const handleNewMessage = useCallback(
+    (msg: Message) => {
+      setMessages((prev) => {
+        const exists = prev.some((m) => m._id === msg._id);
+        if (exists) return prev;
+        return [msg, ...prev];
+      });
+      //Verify that the message belongs to the currently open chat:
+      if (msg.senderId === receiverId && msg.receiverId === userId) {
+        if (isAtBottomRef.current) {
+          // ✅ auto mark as read
+          markAsRead();
+          // ✅ auto scroll
+          setTimeout(() => {
+            flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+          }, 100);
+        } else {
+          setShowNewMsgBtn(true);
+        }
+      }
+    },
+    [markAsRead, receiverId, userId],
+  );
 
-    if (msg.senderId === receiverId && msg.receiverId === userId) {
-      //working only on db
-      markAsRead();
-    }
-
-    if (isAtBottomRef.current) {
-      // ✅ auto scroll
-      setTimeout(() => {
-        flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
-      }, 100);
-    } else {
-      // ❗ show button
-      setShowNewMsgBtn(true);
-    }
-  };
-
+  const [isTyping, setIsTyping] = useState(false);
   // 🔥 Hooking up the Socket Event Sub-Hook
   useChatSocket({
     handleNewMessage,
     userId,
+    receiverId,
     isFocused,
     setMessages,
     fetchMessages,
     flatListRef,
+    setIsTyping,
+    setIsOnline,
+    setLastSeen,
   });
 
   const sendMessage = () => {
@@ -146,71 +247,53 @@ export default function useChat() {
       receiverId,
       type: "text", // ✅ ADD THIS
       text: trimmedMessage,
+      ...(replyMessage && { replyTo: replyMessage._id }),
     });
 
     setMessage("");
+    setReplyMessage(null);
   };
 
   const loadMoreMessages = async () => {
-    if (loading || paginationCooldownRef.current || !hasMore) return;
+    if (
+      loading ||
+      paginationCooldownRef.current ||
+      !hasMore ||
+      messages.length === 0
+    ) {
+      return;
+    }
 
-    restoredScrollRef.current = false;
     loadingMoreRef.current = true;
-
     paginationCooldownRef.current = true;
-
-    oldContentHeightRef.current = previousHeightRef.current;
 
     setLoading(true);
 
-    const oldest = messages[messages.length - 1].createdAt;
-
-    const data = await chatService.FetchMoreMessages(
-      userId,
-      receiverId,
-      oldest,
-    );
-
-    if (data.length === 0) {
-      setHasMore(false);
-    } else {
-      setMessages((prev) => {
-        const newMsgs = data.filter(
-          (msg: Message) => !prev.some((p) => p._id === msg._id),
-        );
-
-        return [...prev, ...newMsgs];
-      });
-    }
-    setTimeout(() => {
-      paginationCooldownRef.current = false;
-    }, 1200);
-    setLoading(false);
-  };
-
-  //when there are many masages and read them all on screen load
-  const markAsRead = async () => {
-    if (isMarkingRead) return;
-    if (!socket) return;
-    setIsMarkingRead(true);
-
     try {
-      await chatService.MarkAsRead(receiverId, userId);
-    } catch (error) {
-      console.error("Mark as read error:", error);
-    } finally {
-      setTimeout(() => setIsMarkingRead(false), 500);
-    }
+      const oldest = messages[messages.length - 1].createdAt;
 
-    if (isAtBottomRef.current) {
-      // 🔥 ADD THIS
-      socket.emit("markAsRead", {
-        senderId: receiverId,
-        receiverId: userId,
-      });
-    } else {
-      // ❗ visible نہیں → unread increment
-      setShowNewMsgBtn(true);
+      const data = await chatService.FetchMoreMessages(
+        userId,
+        receiverId,
+        oldest,
+      );
+
+      if (data.length === 0) {
+        setHasMore(false);
+      } else {
+        setMessages((prev) => {
+          const newMsgs = data.filter(
+            (msg: Message) => !prev.some((p) => p._id === msg._id),
+          );
+          return [...prev, ...newMsgs];
+        });
+      }
+    } catch (error) {
+      console.error("Load more failed:", error);
+    } finally {
+      paginationCooldownRef.current = false;
+      setLoading(false);
+      loadingMoreRef.current = false;
     }
   };
 
@@ -247,23 +330,27 @@ export default function useChat() {
     message,
     setMessage,
     flatListRef,
-    previousHeightRef,
-    oldContentHeightRef,
-    previousOffsetRef,
-    restoredScrollRef,
     userId,
     scrollTimeoutRef,
     loadMoreMessages,
     hasMore,
     openEmojiPicker,
     toggleEmojiPicker,
-
+    isAtBottomRef,
     showNewMsgBtn,
     setShowNewMsgBtn,
+    markAsRead,
     inputRef,
     loadingMoreRef,
     sendMessage,
     setOpenEmojiPicker,
-    setShouldFocusInput,
+    unreadCount,
+    handleTyping,
+    receiverName,
+    isTyping,
+    isOnline,
+    lastSeen,
+    setReplyMessage,
+    replyMessage,
   };
 }

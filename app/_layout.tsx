@@ -47,7 +47,7 @@ function RootLayoutFunction() {
         <Stack.Screen
           name="(tabs)/Chat"
           options={{
-            headerShown: true,
+            headerShown: false,
             title: "Chat Message",
           }}
         />

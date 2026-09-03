@@ -35,6 +35,7 @@ export const AuthProvider = ({ children }: any) => {
       if (storedUser) {
         setUser(JSON.parse(storedUser));
         setIsLoggedIn(true);
+        console.log("user from storage: ", JSON.parse(storedUser));
       }
       if (token && isTokenValid(token)) {
         setIsLoggedIn(true);

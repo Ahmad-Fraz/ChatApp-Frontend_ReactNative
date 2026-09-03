@@ -2,10 +2,13 @@ import AttachmentModal from "@/components/AttachmentModal";
 
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
+import ChatList from "@/components/Chat/ChatList";
+import useChat from "@/hooks/useChat";
 import { useCallback, useState } from "react";
 import {
   Platform,
   StyleSheet,
+  Text,
   TextInput,
   TouchableOpacity,
   View,
@@ -14,9 +17,8 @@ import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { EmojiKeyboard } from "rn-emoji-keyboard";
 import AttachmentButton from "../../components/AttachmentButton";
+import NetworkBanner from "../../components/NetworkBanner";
 
-import ChatList from "@/components/Chat/ChatList";
-import useChat from "@/hooks/useChat";
 export default function ChatScreen() {
   const [visible, setVisible] = useState(false);
 
@@ -26,31 +28,37 @@ export default function ChatScreen() {
 
   const {
     setOpenEmojiPicker,
-    setShouldFocusInput,
     sendMessage,
     loadingMoreRef,
     messages,
     message,
     setMessage,
     flatListRef,
-    previousHeightRef,
-    oldContentHeightRef,
-    previousOffsetRef,
-    restoredScrollRef,
     userId,
     scrollTimeoutRef,
     loadMoreMessages,
     hasMore,
     openEmojiPicker,
     toggleEmojiPicker,
-
+    isAtBottomRef,
     showNewMsgBtn,
     setShowNewMsgBtn,
     inputRef,
+    markAsRead,
+    unreadCount,
+    handleTyping,
+    receiverName,
+    isTyping,
+    isOnline,
+    lastSeen,
+    setReplyMessage,
+    replyMessage,
   } = useChat();
 
   return (
     <>
+      <NetworkBanner position="top" />
+
       <SafeAreaView style={{ flex: 1 }}>
         <KeyboardAvoidingView
           style={{ flex: 1 }}
@@ -60,71 +68,118 @@ export default function ChatScreen() {
           <ChatList
             flatListRef={flatListRef}
             messages={messages}
-            previousHeightRef={previousHeightRef}
-            oldContentHeightRef={oldContentHeightRef}
-            previousOffsetRef={previousOffsetRef}
-            restoredScrollRef={restoredScrollRef}
             userId={userId}
             scrollTimeoutRef={scrollTimeoutRef}
             loadMoreMessages={loadMoreMessages}
             loadingMoreRef={loadingMoreRef}
             hasMore={hasMore}
+            isAtBottomRef={isAtBottomRef}
+            markAsRead={markAsRead}
+            showNewMsgBtn={showNewMsgBtn}
+            setShowNewMsgBtn={setShowNewMsgBtn}
+            unreadCount={unreadCount}
+            receiverName={receiverName}
+            isTyping={isTyping}
+            isOnline={isOnline}
+            lastSeen={lastSeen}
+            setReplyMessage={setReplyMessage}
           />
 
           <View style={styles.container}>
-            <View style={styles.inputView}>
-              <TouchableOpacity
-                onPress={toggleEmojiPicker}
-                style={styles.emojiBtn}
-              >
-                <MaterialCommunityIcons
-                  name={
-                    openEmojiPicker ? "keyboard-outline" : "emoticon-outline"
-                  }
-                  size={28}
-                  color="#555"
+            <View style={{ flex: 1 }}>
+              {/* Replying to message preview */}
+              {replyMessage && (
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    padding: 10,
+                    backgroundColor: "#f0f0f0",
+                    borderLeftWidth: 4,
+                    borderLeftColor: "#777",
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontWeight: "bold" }}>
+                      Replying to message
+                    </Text>
+
+                    <Text numberOfLines={1}>
+                      {replyMessage.type === "text"
+                        ? replyMessage.text
+                        : replyMessage.type === "image"
+                          ? "📷 Photo"
+                          : replyMessage.type === "document"
+                            ? `📄 ${replyMessage.document?.name}`
+                            : replyMessage.type === "location"
+                              ? "📍 Location"
+                              : ""}
+                    </Text>
+                  </View>
+
+                  <TouchableOpacity onPress={() => setReplyMessage(null)}>
+                    <Text style={{ fontSize: 20 }}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+              {/* Chat Input Box  */}
+              <View style={styles.inputView}>
+                <TouchableOpacity
+                  onPress={toggleEmojiPicker}
+                  style={styles.emojiBtn}
+                >
+                  <MaterialCommunityIcons
+                    name={
+                      openEmojiPicker ? "keyboard-outline" : "emoticon-outline"
+                    }
+                    size={28}
+                    color="#555"
+                  />
+                </TouchableOpacity>
+
+                <TextInput
+                  style={[
+                    styles.input as any,
+                    Platform.OS === "web" ? { outlineStyle: "none" } : {},
+                  ]}
+                  ref={inputRef}
+                  value={message}
+                  placeholder="Type a message..."
+                  onChangeText={handleTyping}
+                  underlineColorAndroid="transparent"
+                  onFocus={() => {
+                    setOpenEmojiPicker(false);
+                  }}
                 />
-              </TouchableOpacity>
 
-              <TextInput
-                style={[
-                  styles.input as any,
-                  Platform.OS === "web" ? { outlineStyle: "none" } : {},
-                ]}
-                ref={inputRef}
-                value={message}
-                placeholder="Type a message..."
-                onChangeText={setMessage}
-                underlineColorAndroid="transparent"
-                onFocus={() => {
-                  setOpenEmojiPicker(false);
-                }}
-              />
+                <AttachmentButton onPress={openAttachmentModel} />
 
-              <AttachmentButton onPress={openAttachmentModel} />
+                {/* WEB SEND BTN INSIDE */}
 
-              {/* WEB SEND BTN INSIDE */}
+                {Platform.OS === "web" && (
+                  <TouchableOpacity
+                    onPress={sendMessage}
+                    style={styles.sendBtnInside}
+                  >
+                    <MaterialCommunityIcons
+                      name="send"
+                      size={22}
+                      color="#fff"
+                    />
+                  </TouchableOpacity>
+                )}
+              </View>
+              {/* MOBILE SEND BTN OUTSIDE */}
 
-              {Platform.OS === "web" && (
+              {Platform.OS !== "web" && (
                 <TouchableOpacity
                   onPress={sendMessage}
-                  style={styles.sendBtnInside}
+                  style={styles.sendBtnOutside}
                 >
-                  <MaterialCommunityIcons name="send" size={22} color="#fff" />
+                  <MaterialCommunityIcons name="send" size={24} color="#fff" />
                 </TouchableOpacity>
               )}
             </View>
-
-            {/* MOBILE SEND BTN OUTSIDE */}
-
-            {Platform.OS !== "web" && (
-              <TouchableOpacity
-                onPress={sendMessage}
-                style={styles.sendBtnOutside}
-              >
-                <MaterialCommunityIcons name="send" size={24} color="#fff" />
-              </TouchableOpacity>
-            )}
           </View>
           {/* <CustomBottomSheet  /> */}
           {visible && (
@@ -137,7 +192,6 @@ export default function ChatScreen() {
             <EmojiKeyboard
               onEmojiSelected={(emoji) => {
                 setMessage((prev) => prev + emoji.emoji);
-                setShouldFocusInput(true);
               }}
             />
           )}

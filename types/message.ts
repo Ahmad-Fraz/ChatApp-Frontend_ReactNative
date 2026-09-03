@@ -1,3 +1,5 @@
+import { ReplyMessage } from "./ReplyMessage";
+
 export type MessageType = "text" | "image" | "document" | "location";
 
 export interface Message {
@@ -19,5 +21,6 @@ export interface Message {
   location?: { longitude: number; latitude: number };
 
   status: "sent" | "delivered" | "read";
+  replyTo?: ReplyMessage | null;
   createdAt: string;
 }

@@ -2,13 +2,24 @@ import { MaterialCommunityIcons } from "@expo/vector-icons"; // Ya jo bhi icon l
 import { Platform, SafeAreaView, StyleSheet, Text, View } from "react-native";
 import { useNetwork } from "../Context/NetworkProvider";
 
-export default function NetworkBanner() {
+type NetworkBannerProps = {
+  position?: "top" | "bottom";
+};
+
+export default function NetworkBanner({
+  position = "top",
+}: NetworkBannerProps) {
   const { isConnected } = useNetwork(); // Context mein value agar sirf boolean hai to {} nahi lagayein
   console.log("Banner Component Status:", isConnected);
   if (isConnected) return null;
 
   return (
-    <View style={styles.container}>
+    <View
+      style={[
+        styles.container,
+        position === "top" ? styles.top : styles.bottom,
+      ]}
+    >
       {/* SafeAreaView taake Notch ke niche na chhupay */}
       <SafeAreaView>
         <View style={styles.content}>
@@ -24,7 +35,6 @@ const styles = StyleSheet.create({
   container: {
     backgroundColor: "#FF5252", // Pyara red (Coral Red)
     position: "absolute",
-    top: 0,
     left: 0,
     right: 0,
     zIndex: 9999, // Taake sab ke upar nazar aaye
@@ -47,5 +57,11 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginLeft: 10,
     fontFamily: Platform.OS === "ios" ? "System" : "sans-serif-medium",
+  },
+  bottom: {
+    bottom: 0,
+  },
+  top: {
+    top: 0,
   },
 });
