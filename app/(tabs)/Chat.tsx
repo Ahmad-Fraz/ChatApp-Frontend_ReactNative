@@ -277,10 +277,10 @@ const styles = StyleSheet.create({
   newMsgBtn: {
     position: "absolute",
     bottom: 80,
-    right: 20,
+    right: 50,
     backgroundColor: "#25D366",
-    width: 50,
-    height: 50,
+    width: 40,
+    height: 40,
     borderRadius: 25,
     justifyContent: "center",
     alignItems: "center",

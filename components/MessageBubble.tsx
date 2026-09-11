@@ -11,6 +11,7 @@ type Props = {
   onReplyPreviewPress?: (messageId: string) => void;
   otherUserName: string;
 };
+
 export default React.memo(function MessageBubble({
   message,
   onReplyPress,
@@ -18,11 +19,8 @@ export default React.memo(function MessageBubble({
   onReplyPreviewPress,
   otherUserName,
 }: Props) {
-  // =======================
-  // TEXT
-  // =======================
-
   const renderContent = () => {
+    // TEXT
     if (message.type === "text") {
       return (
         <View>
@@ -31,12 +29,8 @@ export default React.memo(function MessageBubble({
       );
     }
 
-    // =======================
     // IMAGE
-    // =======================
-
     if (message.type === "image") {
-      console.log("Rendering image with URL:", `${API_URL}${message.image}`);
       return (
         <Image
           source={{
@@ -52,10 +46,7 @@ export default React.memo(function MessageBubble({
       );
     }
 
-    // =======================
     // DOCUMENT
-    // =======================
-
     if (message.type === "document") {
       return (
         <TouchableOpacity
@@ -70,10 +61,7 @@ export default React.memo(function MessageBubble({
       );
     }
 
-    // =======================
     // LOCATION
-    // =======================
-
     if (message.type === "location") {
       return (
         <View
@@ -86,7 +74,6 @@ export default React.memo(function MessageBubble({
           <Text>📍 Location Shared</Text>
 
           <Text>{message.location?.latitude}</Text>
-
           <Text>{message.location?.longitude}</Text>
         </View>
       );
@@ -142,14 +129,11 @@ export default React.memo(function MessageBubble({
       </Pressable>
     );
   };
+
   return (
-    <Pressable
-      onLongPress={() => {
-        onReplyPress?.(message);
-      }}
-    >
+    <View>
       {renderReplyPreview()}
       {renderContent()}
-    </Pressable>
+    </View>
   );
 });

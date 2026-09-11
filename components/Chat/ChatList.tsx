@@ -5,6 +5,7 @@ import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   FlatList,
   ListRenderItem,
   StyleSheet,
@@ -13,7 +14,8 @@ import {
   View,
 } from "react-native";
 import getStatusIcon from "../../components/GetStatusIcon";
-import MessageBubble from "../../components/MessageBubble";
+import SwipeableMessage from "../../components/SwipeableMessage";
+
 dayjs.extend(relativeTime);
 
 interface Props {
@@ -73,7 +75,8 @@ export default React.memo(function ChatList({
 
   const highlightAfterScrollRef = useRef<string | null>(null);
   const hasHighlightedTargetRef = useRef(false);
-
+  const [isReplyScrolling, setIsReplyScrolling] = useState(false);
+  const viewableItemsRef = useRef<any[]>([]); // Store currently viewable items
   //Be always Synced wiht Latest Messages
   useEffect(() => {
     messegesRef.current = messages;
@@ -155,6 +158,7 @@ export default React.memo(function ChatList({
       console.log("No more messages available");
       pendingReplyMessageIdRef.current = null;
       highlightAfterScrollRef.current = null;
+      setIsReplyScrolling(false);
       return;
     }
 
@@ -165,104 +169,102 @@ export default React.memo(function ChatList({
     loadMoreMessages();
   }, [messages, hasMore, loadMoreMessages, loadingMoreRef, flatListRef]);
 
+  const highlightMessage = useCallback((messageId: string) => {
+    hasHighlightedTargetRef.current = true;
+    setHighlightedMessageId(messageId);
+    setIsReplyScrolling(false);
+    highlightAfterScrollRef.current = null;
+    pendingReplyMessageIdRef.current = null;
+
+    if (highlightTimeoutRef.current) {
+      clearTimeout(highlightTimeoutRef.current);
+    }
+
+    highlightTimeoutRef.current = setTimeout(() => {
+      setHighlightedMessageId(null);
+      highlightTimeoutRef.current = null;
+    }, 1500);
+  }, []);
+
   useEffect(() => {
     console.log("HIGHLIGHT STATE CHANGED:", highlightedMessageId);
   }, [highlightedMessageId]);
-
   const scrollToMessage = useCallback(
     (messageId: string) => {
+      console.log("TARGET:", messageId);
+
+      pendingReplyMessageIdRef.current = messageId;
+      highlightAfterScrollRef.current = messageId;
+      hasHighlightedTargetRef.current = false;
+
+      const isVisible = viewableItemsRef.current.some(
+        (item) => item.item?._id === messageId,
+      );
+
+      // Already visible
+      if (isVisible) {
+        console.log("Target already visible");
+
+        setHighlightedMessageId(messageId);
+        highlightAfterScrollRef.current = null;
+        hasHighlightedTargetRef.current = true;
+        pendingReplyMessageIdRef.current = null;
+
+        highlightMessage(messageId);
+        return;
+      }
+
+      // Not visible → we actually need to scroll/load
+      setIsReplyScrolling(true);
+
       const index = messegesRef.current.findIndex(
         (message) => message._id === messageId,
       );
 
-      pendingReplyMessageIdRef.current = messageId;
-
-      highlightAfterScrollRef.current = messageId;
-      hasHighlightedTargetRef.current = false;
-
-      console.log("3 target:", messageId);
-      console.log("4 index:", index);
-      // Tapped Message already loaded
       if (index !== -1) {
-        flatListRef.current?.scrollToIndex({
-          index,
-          animated: true,
-          viewPosition: 0.5,
+        requestAnimationFrame(() => {
+          flatListRef.current?.scrollToIndex({
+            index,
+            animated: true,
+            viewPosition: 0.5,
+          });
         });
+
         return;
       }
 
-      console.log("highlight state SET:", messageId);
       // Not loaded
-      loadMoreMessages();
-      console.log("Target not loaded. Need older messages.");
+      if (!loadingMoreRef.current && hasMore) {
+        loadMoreMessages();
+      }
     },
-    [messegesRef, flatListRef, loadMoreMessages],
+    [messegesRef, loadMoreMessages, hasMore],
   );
 
   const renderItem: ListRenderItem<Message> = useCallback(
     ({ item }) => {
       const isMe = item.senderId === userId;
-      const isHighlighted = highlightedMessageId === item._id;
-      if (isHighlighted)
-        console.log("RENDER MESSAGE:", item._id, "HIGHLIGHT:", isHighlighted);
+
       return (
-        <View
-          style={[
-            styles.renderItem,
-            {
-              alignSelf: isMe ? "flex-end" : "flex-start",
-              backgroundColor:
-                highlightedMessageId === item._id
-                  ? "#FFF3A3"
-                  : isMe
-                    ? "#DCF8C6"
-                    : "#fff",
-
-              borderTopRightRadius: isMe ? 2 : 15, // WhatsApp style tail
-              borderTopLeftRadius: isMe ? 15 : 2,
-            },
-          ]}
-        >
-          <MessageBubble
-            message={item}
-            onReplyPress={setReplyMessage}
-            currentUserId={userId}
-            otherUserName={receiverName}
-            onReplyPreviewPress={scrollToMessage}
-          />
-
-          {/* ================= FOOTER (TIME + STATUS) ================= */}
-          {isMe && (
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "flex-end",
-                marginTop: 2,
-              }}
-            >
-              <Text
-                style={{
-                  fontSize: 11,
-                  color: "rgba(0,0,0,0.45)",
-                  marginRight: 4,
-                }}
-              >
-                {new Date(item.createdAt).toLocaleTimeString()}
-              </Text>
-              {getStatusIcon(item.status)}
-            </View>
-          )}
-        </View>
+        <SwipeableMessage
+          message={item}
+          isMe={isMe}
+          currentUserId={userId}
+          otherUserName={receiverName}
+          highlightedMessageId={highlightedMessageId}
+          onReplyPress={setReplyMessage}
+          onReplyPreviewPress={scrollToMessage}
+          getStatusIcon={getStatusIcon}
+        />
       );
     },
     [
       userId,
       receiverName,
+      highlightedMessageId,
       setReplyMessage,
       scrollToMessage,
-      highlightedMessageId,
+      getStatusIcon,
     ],
   );
 
@@ -310,7 +312,8 @@ export default React.memo(function ChatList({
   );
   const onViewableItemsChanged = useRef(
     ({ viewableItems }: { viewableItems: any[] }) => {
-      const targetId = highlightAfterScrollRef.current;
+      const targetId = highlightAfterScrollRef.current; // Get the target message ID to highlight after scroll
+      viewableItemsRef.current = viewableItems; // Update the ref with current viewable items
 
       if (!targetId) return;
 
@@ -320,30 +323,9 @@ export default React.memo(function ChatList({
         (item) => item.item?._id === targetId,
       );
 
-      if (!targetVisible) return;
-
-      console.log("TARGET ACTUALLY VISIBLE:", targetId);
-
-      // Prevent highlighting the same target multiple times
-      hasHighlightedTargetRef.current = true;
-
-      // Highlight
-      setHighlightedMessageId(targetId);
-
-      // Target reached
-      highlightAfterScrollRef.current = null;
-      pendingReplyMessageIdRef.current = null;
-
-      // Remove previous timeout if one exists
-      if (highlightTimeoutRef.current) {
-        clearTimeout(highlightTimeoutRef.current);
+      if (targetVisible) {
+        highlightMessage(targetId);
       }
-
-      // Auto remove highlight
-      highlightTimeoutRef.current = setTimeout(() => {
-        setHighlightedMessageId(null);
-        highlightTimeoutRef.current = null;
-      }, 1500);
     },
   ).current;
 
@@ -369,6 +351,15 @@ export default React.memo(function ChatList({
           </Text>
         </View>
       </View>
+
+      {isReplyScrolling && (
+        <View style={styles.replyLoadingContainer}>
+          <View style={styles.replyLoadingText}>
+            <ActivityIndicator size="small" />
+            <Text>Loading / finding message...</Text>
+          </View>
+        </View>
+      )}
 
       <FlatList
         data={messages}
@@ -396,20 +387,21 @@ export default React.memo(function ChatList({
 });
 
 const styles = StyleSheet.create({
-  renderItem: {
-    margin: 5,
-    borderRadius: 10,
+  replyLoadingContainer: {
+    paddingTop: 10,
+    paddingBottom: 6,
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginHorizontal: 15,
-    maxWidth: "80%",
-    marginVertical: 4,
-    // Add shadow/elevation taake bubbles thode uthe hue lagein
-    elevation: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.18,
-    shadowRadius: 1.0,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+
+  replyLoadingText: {
+    backgroundColor: "#e5e5e5",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
   },
   header: {
     height: 60,
