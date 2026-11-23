@@ -2,7 +2,7 @@ import NetInfo from "@react-native-community/netinfo";
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { Platform } from "react-native"; // Platform import karna lazmi hai
 
-const NetworkContext = createContext();
+const NetworkContext = createContext({ isConnected: true });
 
 export const NetworkProvider = ({ children }) => {
   const [isConnected, setIsConnected] = useState(true);

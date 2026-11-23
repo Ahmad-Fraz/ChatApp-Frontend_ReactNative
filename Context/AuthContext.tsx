@@ -1,7 +1,16 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import { jwtDecode } from "jwt-decode";
-import { createContext, useContext, useEffect, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
+import Toast from "react-native-toast-message";
+
+import { setOnSessionExpired, resetSessionExpired } from "@/services/auth";
 
 const AuthContext = createContext<any>(null);
 
@@ -20,30 +29,36 @@ export const AuthProvider = ({ children }: any) => {
       const decoded: any = jwtDecode(token);
       const currentTime = Date.now() / 1000;
 
+      console.log("Token is valid:", decoded);
       return decoded.exp > currentTime;
     } catch {
+      console.log("Token is invalid");
       return false;
     }
   };
 
-  // 🔥 App start pe check
+  // Check token validity on app start
   useEffect(() => {
     const checkToken = async () => {
-      const storedUser = await AsyncStorage.getItem("user");
-      const token = await AsyncStorage.getItem("token");
+      try {
+        const token = await AsyncStorage.getItem("token");
+        const storedUser = await AsyncStorage.getItem("user");
 
-      if (storedUser) {
-        setUser(JSON.parse(storedUser));
-        setIsLoggedIn(true);
-        console.log("user from storage: ", JSON.parse(storedUser));
-      }
-      if (token && isTokenValid(token)) {
-        setIsLoggedIn(true);
-      } else {
-        await AsyncStorage.removeItem("token");
+        if (token && isTokenValid(token) && storedUser) {
+          setUser(JSON.parse(storedUser));
+          setIsLoggedIn(true);
+        } else {
+          await AsyncStorage.multiRemove(["token", "user"]);
+          setUser(null);
+          setIsLoggedIn(false);
+        }
+      } catch (error) {
+        await AsyncStorage.multiRemove(["token", "user"]);
+        setUser(null);
         setIsLoggedIn(false);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
     checkToken();
@@ -55,21 +70,38 @@ export const AuthProvider = ({ children }: any) => {
     await AsyncStorage.setItem("user", JSON.stringify(user));
 
     setUser(user);
-    console.log("user: ", user);
+    resetSessionExpired(); // Reset the session expiry flag on login
     setIsLoggedIn(true);
     router.replace("/Users");
   };
 
-  const logout = async () => {
-    await AsyncStorage.removeItem("token");
-    await AsyncStorage.removeItem("user");
+  type logoutReason = "manual" | "sessionExpired";
+  const logout = useCallback(async (reason: logoutReason = "manual") => {
+    await AsyncStorage.multiRemove(["token", "user"]);
 
-    setIsLoggedIn(false);
     setUser(null);
 
     setIsLoggedIn(false);
     router.replace("/Login");
-  };
+    if (reason === "manual") {
+      Toast.show({
+        type: "info",
+        text1: "Logged Out",
+        text2: "You have been logged out successfully.",
+        visibilityTime: 3500,
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    setOnSessionExpired(() => {
+      void logout("sessionExpired");
+    });
+
+    return () => {
+      setOnSessionExpired(null);
+    };
+  }, [logout]);
 
   return (
     <AuthContext.Provider value={{ isLoggedIn, login, logout, loading, user }}>

@@ -44,7 +44,9 @@ const Login = () => {
           </TouchableOpacity>
 
           <TouchableOpacity onPress={() => router.replace("Register")}>
-            <Text style={styles.linkText}>Don't have an account? Register</Text>
+            <Text style={styles.linkText}>
+              Don&apos;t have an account? Register
+            </Text>
           </TouchableOpacity>
         </View>
       </View>

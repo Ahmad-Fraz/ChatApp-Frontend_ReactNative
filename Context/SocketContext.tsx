@@ -62,16 +62,14 @@ export const SocketProvider = ({ children }: SocketProviderProps) => {
     };
   }, [user?._id]);
 
+  const value: SocketContextType = {
+    socket,
+    user,
+    currentChatUserId,
+    setCurrentChatUserId,
+  };
+
   return (
-    <SocketContext.Provider
-      value={{
-        socket,
-        user,
-        currentChatUserId,
-        setCurrentChatUserId,
-      }}
-    >
-      {children}
-    </SocketContext.Provider>
+    <SocketContext.Provider value={value}>{children}</SocketContext.Provider>
   );
 };

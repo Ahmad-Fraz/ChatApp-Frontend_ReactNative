@@ -44,9 +44,12 @@ export default function useChat() {
   const inputRef = useRef<TextInput>(null);
   const paginationCooldownRef = useRef(false);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
+  const shouldScrollToSentMessageRef = useRef(false);
+  const [newMessageCount, setNewMessageCount] = useState(0);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTypingRef = useRef(false);
+  const [loadingMoreMsgs, setLoadingMoreMsgs] = useState(false);
+
   useEffect(() => {
     console.log("replyMessage:", replyMessage);
   }, [replyMessage]);
@@ -114,6 +117,7 @@ export default function useChat() {
   const fetchMessages = useCallback(async () => {
     try {
       const data = await chatService.fetchMessages(userId, receiverId);
+
       setMessages(data);
     } catch (err) {
       console.log(err);
@@ -148,21 +152,22 @@ export default function useChat() {
   const markAsRead = useCallback(async () => {
     if (isMarkingRead) return;
     if (!socket) return;
+    // User must actually be at the bottom for marking messages as read to make sense
+    if (!isAtBottomRef.current) {
+      return;
+    }
+
     setIsMarkingRead(true);
 
     try {
       await chatService.MarkAsRead(receiverId, userId);
 
-      if (isAtBottomRef.current) {
-        // 🔥 ADD THIS
-        socket.emit("markAsRead", {
-          senderId: receiverId,
-          receiverId: userId,
-        });
-      } else {
-        // ❗ visible نہیں → unread increment
-        setShowNewMsgBtn(true);
-      }
+      // 🔥 ADD THIS
+      socket.emit("markAsRead", {
+        senderId: receiverId,
+        receiverId: userId,
+      });
+      setNewMessageCount(0);
     } catch (error) {
       console.error("Mark as read error:", error);
     } finally {
@@ -212,7 +217,9 @@ export default function useChat() {
           setTimeout(() => {
             flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
           }, 100);
+          setNewMessageCount(0);
         } else {
+          setNewMessageCount((prev) => prev + 1);
           setShowNewMsgBtn(true);
         }
       }
@@ -233,6 +240,7 @@ export default function useChat() {
     setIsTyping,
     setIsOnline,
     setLastSeen,
+    shouldScrollToSentMessageRef,
   });
 
   const sendMessage = () => {
@@ -268,6 +276,8 @@ export default function useChat() {
     paginationCooldownRef.current = true;
 
     setLoading(true);
+    setLoadingMoreMsgs(true);
+    console.log("loadMoreMessages...");
 
     try {
       const oldest = messages[messages.length - 1].createdAt;
@@ -294,6 +304,8 @@ export default function useChat() {
       paginationCooldownRef.current = false;
       setLoading(false);
       loadingMoreRef.current = false;
+      setLoadingMoreMsgs(false);
+      console.log("loadMoreMessages finished");
     }
   };
 
@@ -352,5 +364,9 @@ export default function useChat() {
     lastSeen,
     setReplyMessage,
     replyMessage,
+    shouldScrollToSentMessageRef,
+    setNewMessageCount,
+    newMessageCount,
+    loadingMoreMsgs,
   };
 }

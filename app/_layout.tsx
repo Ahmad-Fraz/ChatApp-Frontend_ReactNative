@@ -1,5 +1,5 @@
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
-import { Stack } from "expo-router";
+import { Stack, useSegments, router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -8,32 +8,50 @@ import Toast from "react-native-toast-message";
 import { AuthProvider, useAuth } from "../Context/AuthContext";
 import { NetworkProvider } from "../Context/NetworkProvider";
 import { SocketProvider } from "../Context/SocketContext";
+import { useEffect } from "react";
+import { setupAxiosInterceptor } from "@/services/auth";
+import { ImageViewerProvider } from "@/Context/ImageViewerContext";
+
 export const unstable_settings = {
   anchor: "(tabs)",
 };
 export default function RootLayout() {
+  setupAxiosInterceptor();
+
   return (
-    <NetworkProvider>
-      <AuthProvider>
-        <SocketProvider>
-          <GestureHandlerRootView style={{ flex: 1 }}>
-            <KeyboardProvider>
-              <BottomSheetModalProvider>
-                <RootLayoutFunction />
-                <Toast />
-              </BottomSheetModalProvider>
-            </KeyboardProvider>
-          </GestureHandlerRootView>
-        </SocketProvider>
-      </AuthProvider>
-    </NetworkProvider>
+    <ImageViewerProvider>
+      <NetworkProvider>
+        <AuthProvider>
+          <SocketProvider>
+            <GestureHandlerRootView style={{ flex: 1 }}>
+              <KeyboardProvider>
+                <BottomSheetModalProvider>
+                  <RootLayoutFunction />
+                  <Toast />
+                </BottomSheetModalProvider>
+              </KeyboardProvider>
+            </GestureHandlerRootView>
+          </SocketProvider>
+        </AuthProvider>
+      </NetworkProvider>
+    </ImageViewerProvider>
   );
 }
 
 function RootLayoutFunction() {
   const { isLoggedIn, loading } = useAuth();
-  if (loading) return null; // splash / loader
-  console.log(isLoggedIn);
+  const segments = useSegments();
+  console.log("Current Segments:", segments);
+
+  useEffect(() => {
+    if (loading) return; // Wait until loading is false
+    if (!isLoggedIn && segments[0] !== "(auth)") {
+      router.replace("/(auth)/Login");
+    } else if (isLoggedIn && segments[0] === "(auth)") {
+      router.replace("/(tabs)/Users");
+    }
+  }, [isLoggedIn, loading, segments]);
+
   return (
     <>
       <Stack>

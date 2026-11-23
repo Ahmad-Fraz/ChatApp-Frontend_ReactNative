@@ -23,6 +23,10 @@ import NetworkBanner from "../../components/NetworkBanner";
 import { API_URL } from "../../config/config";
 import { useAuth } from "../../Context/AuthContext";
 import { useSocket } from "../../Context/SocketContext";
+import {
+  fetchUnread,
+  playMessageSound,
+} from "../../components/APICallsForUsersPage";
 dayjs.extend(relativeTime);
 
 export default function UsersScreen() {
@@ -30,10 +34,11 @@ export default function UsersScreen() {
   const [users, setUsers] = useState([]);
   const [unreadCounts, setUnreadCounts] = useState({});
   const { socket, currentChatUserId } = useSocket();
-  const { user, logout } = useAuth();
+  const { user, logout, loading } = useAuth();
 
   console.log("user in user.js", user);
-  const [loading, setLoading] = useState(true);
+
+  const [loadingData, setLoadingData] = useState(true);
   // Agar aapne stringify kiya tha, to parse karna pare ga
 
   const playerRef = useRef(null);
@@ -41,57 +46,22 @@ export default function UsersScreen() {
   useEffect(() => {
     if (Platform.OS !== "web") {
       playerRef.current = createAudioPlayer(
-        require("../../assets/sounds/sound.mp3"),
+        require("../../assets/sounds/msgRecieveSound.mp3"),
+        { shouldPlay: true },
       );
     }
 
     return () => {
       if (playerRef.current) {
-        playerRef.current.stop();
+        playerRef.current.remove();
         playerRef.current = null;
       }
     };
   }, []);
 
-  const playMessageSound = async () => {
-    console.log("1 Start");
-    const soundFilePath =
-      Platform.OS === "web"
-        ? "sounds\\sound.mp3"
-        : require("../../assets/sounds/sound.mp3");
-    try {
-      console.log("2 Before play");
-      if (Platform.OS === "web") {
-        const audio = new window.Audio(soundFilePath);
-        await audio.play();
-        return;
-      }
-      console.log("3 After play");
-      await playerRef.current?.play();
-    } catch (err) {
-      console.log("Sound Error:", err);
-    }
-    console.log("5 End");
-  };
-
-  const fetchUnread = useCallback(async () => {
-    try {
-      console.log(
-        "Fetching users from Unread:",
-        process.env.EXPO_PUBLIC_API_MOBILE + "/users",
-      );
-      const res = await axios.get(`${API_URL}/api/messages/unread/${user._id}`);
-      console.log("Unread Raw Data:", res.data);
-      return res.data;
-    } catch (error) {
-      console.error("Axios Error:", error);
-      return [];
-    }
-  }, [user._id]);
-
   const loadUnread = useCallback(async () => {
     try {
-      const response = await fetchUnread();
+      const response = await fetchUnread(user?._id, loading);
       const unreadCountsMap = {};
       response.forEach((item) => {
         unreadCountsMap[item._id] = item.count;
@@ -101,7 +71,7 @@ export default function UsersScreen() {
     } catch (error) {
       console.log("Unread count error:", error);
     }
-  }, [fetchUnread]);
+  }, [loading, user?._id]);
 
   const userRef = useRef(user);
 
@@ -121,7 +91,7 @@ export default function UsersScreen() {
 
   useEffect(() => {
     if (!socket) return;
-
+    if (loading || !user?._id) return;
     const handleReceiveMessage = async (message) => {
       console.log("Users Screen - New Message:", message);
 
@@ -151,7 +121,7 @@ export default function UsersScreen() {
       console.log("isCurrentChatOpen", isCurrentChatOpen);
 
       if (!isCurrentChatOpen) {
-        await playMessageSound();
+        await playMessageSound(playerRef);
         Toast.show({
           type: "success",
           text1: `${user?.name} || New Msg` || "New Message",
@@ -183,8 +153,8 @@ export default function UsersScreen() {
     unreadCount,
     markAsRead,
     isAtBottomRef,
-    user._id,
-    user.name,
+    user?._id,
+    user?.name,
   ]);
 
   useEffect(() => {
@@ -208,6 +178,7 @@ export default function UsersScreen() {
   );
 
   const fetchUsers = useCallback(async () => {
+    if (loading || !user?._id) return;
     try {
       console.log(
         "Fetching users:",
@@ -218,9 +189,9 @@ export default function UsersScreen() {
     } catch (error) {
       console.error("Fetch Error:", error);
     } finally {
-      setLoading(false);
+      setLoadingData(false);
     }
-  }, [user._id]);
+  }, [user?._id]);
 
   useEffect(() => {
     fetchUsers();
@@ -236,10 +207,10 @@ export default function UsersScreen() {
       <MyListItem
         item={item}
         unreadCount={unreadCounts[item._id] || 0}
-        currentUserId={user._id}
+        currentUserId={user?._id}
       />
     ),
-    [unreadCounts, user._id],
+    [unreadCounts, user?._id],
   );
 
   return (
@@ -267,7 +238,7 @@ export default function UsersScreen() {
       </View>
 
       {/* --- USER LIST --- */}
-      {loading ? (
+      {loadingData ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color="#075E54" />
         </View>

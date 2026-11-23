@@ -17,8 +17,11 @@ export interface Message {
     name: string;
     uri: string;
     type: string;
+    size: number;
   };
   location?: { longitude: number; latitude: number };
+  isDeleted: boolean;
+  deletedAt: string | null;
 
   status: "sent" | "delivered" | "read";
   replyTo?: ReplyMessage | null;

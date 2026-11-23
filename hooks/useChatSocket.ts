@@ -13,6 +13,7 @@ type SocketProps = {
   setIsTyping: React.Dispatch<React.SetStateAction<boolean>>;
   setIsOnline: React.Dispatch<React.SetStateAction<boolean>>;
   setLastSeen: React.Dispatch<React.SetStateAction<number | null>>;
+  shouldScrollToSentMessageRef: React.RefObject<boolean>;
 };
 
 export function useChatSocket({
@@ -26,6 +27,7 @@ export function useChatSocket({
   setIsTyping,
   setIsOnline,
   setLastSeen,
+  shouldScrollToSentMessageRef,
 }: SocketProps) {
   const { socket } = useSocket();
 
@@ -59,12 +61,14 @@ export function useChatSocket({
     });
 
     socket.on("userOffline", ({ userId, lastSeen }) => {
+      console.log("userOffline event received:", { userId, lastSeen });
       if (userId === receiverId) {
         setIsOnline(false);
 
         setLastSeen(lastSeen);
       }
     });
+
     socket.on("presence", ({ userId, online, lastSeen }) => {
       if (userId !== receiverId) return;
 
@@ -109,7 +113,17 @@ export function useChatSocket({
         return [msg, ...prev];
       });
 
-      flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+      shouldScrollToSentMessageRef.current = true;
+    });
+
+    //Update UI after deleting msg from DB
+    socket.on("messageDeleted", (updatedMessage) => {
+      console.log("messageDeleted event received:", updatedMessage);
+      setMessages((prev) =>
+        prev.map((msg) =>
+          String(msg._id) === String(updatedMessage._id) ? updatedMessage : msg,
+        ),
+      );
     });
 
     return () => {
@@ -120,6 +134,7 @@ export function useChatSocket({
       socket.off("typing");
       socket.off("stopTyping");
       socket.off("presence");
+      socket.off("messageDeleted");
       socket.off("userOnline");
       socket.off("userOffline");
     };

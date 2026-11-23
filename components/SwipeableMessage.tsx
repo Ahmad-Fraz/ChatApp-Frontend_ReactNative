@@ -1,9 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as Clipboard from "expo-clipboard";
-import React from "react";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import React, { useRef } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { Gesture } from "react-native-gesture-handler";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 
 import Animated, {
   Extrapolation,
@@ -26,6 +25,15 @@ type Props = {
 
   onReplyPress: (message: Message) => void;
   onReplyPreviewPress: (messageId: string) => void;
+  onLongPress: (
+    message: Message,
+    position: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    },
+  ) => void;
 
   getStatusIcon: (status: Message["status"]) => React.ReactNode;
 };
@@ -38,6 +46,7 @@ export default React.memo(function SwipeableMessage({
   highlightedMessageId,
   onReplyPress,
   onReplyPreviewPress,
+  onLongPress,
   getStatusIcon,
 }: Props) {
   const translateX = useSharedValue(0);
@@ -46,33 +55,15 @@ export default React.memo(function SwipeableMessage({
     onReplyPress(message);
   };
 
-  const handleLongPress = () => {
-    const actions: {
-      text: string;
-      onPress?: () => void;
-      style?: "cancel" | "default" | "destructive";
-    }[] = [
-      {
-        text: "Reply",
-        onPress: () => onReplyPress(message),
-      },
-    ];
-    console.log("message.text", message.text);
-    if (message.type === "text" && message.text?.trim()) {
-      actions.push({
-        text: "Copy",
-        onPress: async () => {
-          await Clipboard.setStringAsync(message.text ?? "");
-        },
+  const msgPosition = () => {
+    messageRef.current?.measureInWindow((x, y, width, height) => {
+      onLongPress(message, {
+        x,
+        y,
+        width,
+        height,
       });
-    }
-
-    actions.push({
-      text: "Cancel",
-      style: "cancel",
     });
-
-    Alert.alert("Message", undefined, actions);
   };
   // =========================
   // SWIPE GESTURE
@@ -147,24 +138,14 @@ export default React.memo(function SwipeableMessage({
 
   const isHighlighted = highlightedMessageId === message._id;
 
-  //const messageGesture = hLongPress();
-  const handleLongPres = () => {
-    console.log("LONG PRESS");
+  const messageRef = useRef<View>(null);
 
-    Alert.alert("Message", "Long press working", [
-      {
-        text: "Reply",
-        onPress: () => {
-          console.log("REPLY PRESSED");
-          onReplyPress(message);
-        },
-      },
-      {
-        text: "Cancel",
-        style: "cancel",
-      },
-    ]);
-  };
+  const formattedTime = new Date(message.createdAt).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  //const messageGesture = hLongPress();
   return (
     // IMPORTANT:
     // Is wrapper mein koi margin/padding nahi
@@ -184,65 +165,78 @@ export default React.memo(function SwipeableMessage({
           ACTUAL BUBBLE
       ========================= */}
 
-      <Pressable onLongPress={handleLongPres} delayLongPress={500}>
-        <Animated.View
-          style={[
-            styles.renderItem,
-
-            {
-              alignSelf: isMe ? "flex-end" : "flex-start",
-
-              backgroundColor: isHighlighted
-                ? "#FFF3A3"
-                : isMe
-                  ? "#DCF8C6"
-                  : "#FFFFFF",
-
-              borderTopRightRadius: isMe ? 2 : 15,
-
-              borderTopLeftRadius: isMe ? 15 : 2,
-            },
-
-            bubbleAnimatedStyle,
-          ]}
+      <GestureDetector gesture={swipeGesture}>
+        <Pressable
+          ref={messageRef}
+          delayLongPress={500}
+          style={{
+            alignSelf: isMe ? "flex-end" : "flex-start",
+            width: "auto",
+          }}
+          onLongPress={() => {
+            // Get the position of the message bubble
+            msgPosition();
+          }}
         >
-          <MessageBubble
-            message={message}
-            onReplyPress={onReplyPress}
-            currentUserId={currentUserId}
-            otherUserName={otherUserName}
-            onReplyPreviewPress={onReplyPreviewPress}
-          />
+          <Animated.View
+            style={[
+              styles.renderItem,
 
-          {/* TIME + STATUS */}
+              {
+                backgroundColor: message.isDeleted
+                  ? "transparent"
+                  : isHighlighted
+                    ? "#FFF3A3"
+                    : isMe
+                      ? "#DCF8C6"
+                      : "#FFFFFF",
 
-          {isMe && (
-            <View style={styles.statusContainer}>
-              <Text style={styles.timeText}>
-                {new Date(message.createdAt).toLocaleTimeString()}
-              </Text>
+                borderTopRightRadius: message.isDeleted ? 15 : isMe ? 2 : 15,
+                borderTopLeftRadius: message.isDeleted ? 15 : isMe ? 15 : 2,
+              },
 
-              {getStatusIcon(message.status)}
-            </View>
-          )}
-        </Animated.View>
-      </Pressable>
+              bubbleAnimatedStyle,
+            ]}
+          >
+            <MessageBubble
+              message={message}
+              onReplyPress={onReplyPress}
+              currentUserId={currentUserId}
+              otherUserName={otherUserName}
+              onReplyPreviewPress={onReplyPreviewPress}
+              onlongPress={msgPosition}
+            />
+
+            {/* TIME + STATUS */}
+
+            {!message.isDeleted && (
+              <View style={styles.statusContainer}>
+                <Text style={styles.timeText}>{formattedTime}</Text>
+
+                {isMe && getStatusIcon(message.status)}
+              </View>
+            )}
+          </Animated.View>
+        </Pressable>
+      </GestureDetector>
     </View>
   );
 });
 
 const styles = StyleSheet.create({
   // No spacing here
+
   container: {
     position: "relative",
     width: "100%",
+    zIndex: 1,
   },
 
   // Icon bubble ke peeche hai
   replyIconContainer: {
     position: "absolute",
 
-    left: 18,
+    left: 50,
 
     top: 0,
     bottom: 0,
